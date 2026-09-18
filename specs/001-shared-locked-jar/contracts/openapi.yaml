@@ -1,0 +1,927 @@
+openapi: 3.1.2
+info:
+  title: Good Thing Jar API
+  version: 1.0.0
+  description: |
+    REST contract for account verification, pairing, locked jar writing, mutual unlock-date
+    changes, and post-unlock entry retrieval. Protected resources return the same not-found
+    problem when absent or unauthorized. Entry submission never returns entry content or metadata.
+servers:
+  - url: /api/v1
+security:
+  - opaqueBearer: []
+tags:
+  - name: Authentication
+  - name: Invitations
+  - name: Pairs
+  - name: Jars
+  - name: Unlock proposals
+
+paths:
+  /auth/registrations:
+    post:
+      tags: [Authentication]
+      security: []
+      operationId: registerAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '202':
+          description: Registration accepted; email verification is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '409':
+          description: Registration cannot be completed with the supplied details.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /auth/email-verifications:
+    post:
+      tags: [Authentication]
+      security: []
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '204':
+          description: Email verified.
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+
+  /auth/email-verification-resends:
+    post:
+      tags: [Authentication]
+      security: []
+      operationId: resendEmailVerification
+      description: |
+        Returns the same accepted response whether the email is absent, unverified, or already
+        verified. For an unverified account, the newest token supersedes all earlier tokens, expires
+        24 hours after issuance, and is queued through the reliable email-delivery mechanism.
+        Resending does not change any invitation expiry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationResendRequest'
+      responses:
+        '202':
+          description: Generic accepted response that does not disclose account or verification state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResendResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '429':
+          $ref: '#/components/responses/ThrottledProblem'
+
+  /auth/sessions:
+    post:
+      tags: [Authentication]
+      security: []
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '200':
+          description: Authenticated session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '429':
+          $ref: '#/components/responses/ThrottledProblem'
+
+  /auth/sessions/refresh:
+    post:
+      tags: [Authentication]
+      security: []
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshSessionRequest'
+      responses:
+        '200':
+          description: Tokens rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '429':
+          $ref: '#/components/responses/ThrottledProblem'
+
+  /auth/sessions/current:
+    delete:
+      tags: [Authentication]
+      operationId: revokeCurrentSession
+      responses:
+        '204':
+          description: Current session revoked immediately.
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+
+  /invitations:
+    post:
+      tags: [Invitations]
+      operationId: createInvitation
+      description: |
+        Atomically stores one invitation and its PostgreSQL transactional-outbox delivery message,
+        with an expiry exactly seven days after creation, then returns without waiting for SMTP.
+        Delivery and retry never extend that expiry. At most one active invitation may exist for the
+        inviter and normalized target email. A duplicate request creates neither an invitation nor a
+        delivery message. The response does not disclose whether the target email has an account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvitationRequest'
+      responses:
+        '202':
+          description: Invitation persisted and queued for delivery with status PENDING_DELIVERY.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/InvitationSummary'
+                  - type: object
+                    properties:
+                      direction:
+                        const: OUTGOING
+                      status:
+                        const: PENDING_DELIVERY
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '409':
+          description: |
+            The inviter's state conflicts with invitation creation. This response must not vary based
+            on whether the target email belongs to an account or whether that account is paired.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/ThrottledProblem'
+    get:
+      tags: [Invitations]
+      operationId: listInvitations
+      parameters:
+        - name: direction
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [incoming, outgoing]
+      responses:
+        '200':
+          description: Invitations and current delivery statuses visible to the authenticated account.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InvitationSummary'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+
+  /invitations/{invitationId}/accept:
+    post:
+      tags: [Invitations]
+      operationId: acceptInvitation
+      parameters:
+        - $ref: '#/components/parameters/InvitationId'
+      responses:
+        '201':
+          description: Pair and initial jar created atomically.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PairResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          description: |
+            Invitation is not a delivered PENDING invitation or cannot be accepted under the pairing
+            invariants. Expired or cancelled invitations and PENDING_DELIVERY or DELIVERY_FAILED
+            invitations never create a pair or initial jar. Acceptance and cancellation are mutually
+            exclusive terminal outcomes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /invitations/{invitationId}:
+    delete:
+      tags: [Invitations]
+      operationId: cancelInvitation
+      parameters:
+        - $ref: '#/components/parameters/InvitationId'
+      responses:
+        '204':
+          description: |
+            Outgoing invitation canceled from PENDING_DELIVERY, PENDING, or DELIVERY_FAILED.
+            Cancellation is terminal; queued or late delivery work cannot reactivate it, and a link
+            already handed to the mail provider remains unusable.
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+
+  /invitations/{invitationId}/delivery-retries:
+    post:
+      tags: [Invitations]
+      operationId: retryInvitationDelivery
+      description: |
+        The inviter requeues delivery for the same DELIVERY_FAILED invitation. No duplicate
+        invitation is created and the original seven-day expiry is unchanged. Expired or cancelled
+        invitations cannot be retried, and work queued before cancellation cannot reactivate them.
+      parameters:
+        - $ref: '#/components/parameters/InvitationId'
+      responses:
+        '202':
+          description: Same invitation queued again with status PENDING_DELIVERY.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/InvitationSummary'
+                  - type: object
+                    properties:
+                      direction:
+                        const: OUTGOING
+                      status:
+                        const: PENDING_DELIVERY
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+        '429':
+          $ref: '#/components/responses/ThrottledProblem'
+
+  /pairs/current:
+    get:
+      tags: [Pairs]
+      operationId: getCurrentPair
+      responses:
+        '200':
+          description: Current pair details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PairResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+
+  /jars:
+    get:
+      tags: [Jars]
+      operationId: listJars
+      responses:
+        '200':
+          description: Jar history for the authenticated pair; never includes entry counts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JarSummary'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+    post:
+      tags: [Jars]
+      operationId: createNextJar
+      responses:
+        '201':
+          description: Next jar created after the previous current jar unlocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JarSummary'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          description: A current locked jar already exists or won a concurrent creation race.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /jars/{jarId}:
+    get:
+      tags: [Jars]
+      operationId: getJar
+      parameters:
+        - $ref: '#/components/parameters/JarId'
+      responses:
+        '200':
+          description: Jar settings; never includes entry counts while locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JarDetail'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+
+  /jars/{jarId}/entries:
+    post:
+      tags: [Jars]
+      operationId: createEntry
+      parameters:
+        - $ref: '#/components/parameters/JarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEntryRequest'
+      responses:
+        '204':
+          description: Entry accepted. No entry content, identifier, count, or metadata is returned.
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          description: Jar is read-only or is not the current writing-cycle jar.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/ThrottledProblem'
+    get:
+      tags: [Jars]
+      operationId: listEntries
+      parameters:
+        - $ref: '#/components/parameters/JarId'
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Stable page of entries from an unlocked jar.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntryPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '423':
+          description: Authenticated pair member requested entries before unlock; no entry metadata returned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /jars/{jarId}/unlock-proposals:
+    post:
+      tags: [Unlock proposals]
+      operationId: createUnlockProposal
+      parameters:
+        - $ref: '#/components/parameters/JarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUnlockProposalRequest'
+      responses:
+        '201':
+          description: Proposal created; effective unlock instant is unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnlockProposalResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+
+  /jars/{jarId}/unlock-proposals/{proposalId}/approval:
+    post:
+      tags: [Unlock proposals]
+      operationId: approveUnlockProposal
+      parameters:
+        - $ref: '#/components/parameters/JarId'
+        - $ref: '#/components/parameters/ProposalId'
+      responses:
+        '200':
+          description: Proposal approved and effective unlock instant changed atomically.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JarDetail'
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+
+  /jars/{jarId}/unlock-proposals/{proposalId}/rejection:
+    post:
+      tags: [Unlock proposals]
+      operationId: rejectUnlockProposal
+      parameters:
+        - $ref: '#/components/parameters/JarId'
+        - $ref: '#/components/parameters/ProposalId'
+      responses:
+        '204':
+          description: Proposal rejected; effective unlock instant unchanged.
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+
+  /jars/{jarId}/unlock-proposals/{proposalId}:
+    delete:
+      tags: [Unlock proposals]
+      operationId: cancelUnlockProposal
+      parameters:
+        - $ref: '#/components/parameters/JarId'
+        - $ref: '#/components/parameters/ProposalId'
+      responses:
+        '204':
+          description: Pending proposal canceled by its proposer.
+        '401':
+          $ref: '#/components/responses/AuthenticationProblem'
+        '404':
+          $ref: '#/components/responses/ProtectedNotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+
+components:
+  securitySchemes:
+    opaqueBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+
+  parameters:
+    InvitationId:
+      name: invitationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    JarId:
+      name: jarId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProposalId:
+      name: proposalId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    AuthenticationProblem:
+      description: Missing, invalid, expired, or revoked authentication.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ValidationProblem:
+      description: Request validation failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ConflictProblem:
+      description: Request conflicts with the current resource state or invariant.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProtectedNotFoundProblem:
+      description: |
+        Protected resource is absent or the requester is not authorized. The response is identical
+        for those cases and does not reveal resource existence or membership.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ThrottledProblem:
+      description: |
+        The operation-specific short-window rate was exceeded. The response is retryable after the
+        indicated delay and does not disclose account, email, invitation, membership, or protected
+        resource existence. The covered operation is not performed; for entry writes, no entry is
+        accepted. Throttling does not create a daily entry quota.
+      headers:
+        Retry-After:
+          description: Whole seconds until this operation may be attempted again.
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+
+    RegistrationResponse:
+      type: object
+      additionalProperties: false
+      required: [accountId, verificationRequired]
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        verificationRequired:
+          type: boolean
+          const: true
+
+    VerifyEmailRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 32
+          maxLength: 512
+
+    EmailVerificationResendRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+
+    EmailVerificationResendResponse:
+      type: object
+      additionalProperties: false
+      required: [accepted]
+      properties:
+        accepted:
+          type: boolean
+          const: true
+          description: Generic acknowledgement with no account or verification-state disclosure.
+
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+
+    RefreshSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 32
+          maxLength: 512
+
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, refreshToken, accessExpiresAt, refreshExpiresAt]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        accessExpiresAt:
+          type: string
+          format: date-time
+        refreshExpiresAt:
+          type: string
+          format: date-time
+
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, timeZone]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        timeZone:
+          type: string
+          description: IANA time-zone ID, such as Asia/Ho_Chi_Minh.
+          minLength: 1
+          maxLength: 64
+
+    InvitationSummary:
+      type: object
+      additionalProperties: false
+      required: [id, direction, status, timeZone, expiresAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        direction:
+          type: string
+          enum: [INCOMING, OUTGOING]
+        counterpartEmail:
+          type: string
+          format: email
+          description: Visible only to the inviter and the verified target account.
+        status:
+          type: string
+          enum: [PENDING_DELIVERY, PENDING, DELIVERY_FAILED, ACCEPTED, CANCELLED, EXPIRED, INVALIDATED]
+          description: |
+            PENDING_DELIVERY means email has not succeeded yet; PENDING means delivery succeeded and
+            the verified target may accept; DELIVERY_FAILED is visible to the inviter and may be
+            retried before expiry. Only PENDING can create a pair and initial jar through acceptance.
+            PENDING_DELIVERY, PENDING, and DELIVERY_FAILED are active. ACCEPTED, CANCELLED, EXPIRED,
+            and INVALIDATED are terminal and cannot return to an active status. At or after expiresAt,
+            the invitation is exposed and treated as EXPIRED even if cleanup has not run.
+        timeZone:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          description: Exactly seven days after createdAt; delivery and retry never extend it.
+        createdAt:
+          type: string
+          format: date-time
+
+    PairResponse:
+      type: object
+      additionalProperties: false
+      required: [id, timeZone, memberAccountIds, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        timeZone:
+          type: string
+        memberAccountIds:
+          type: array
+          minItems: 2
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    JarSummary:
+      type: object
+      additionalProperties: false
+      required: [id, sequenceNumber, current, timeZone, effectiveUnlockAt, lockStatus, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sequenceNumber:
+          type: integer
+          minimum: 1
+        current:
+          type: boolean
+          description: Latest writing-cycle jar; this is not persisted lock state.
+        timeZone:
+          type: string
+        effectiveUnlockAt:
+          type: string
+          format: date-time
+        lockStatus:
+          type: string
+          enum: [LOCKED, UNLOCKED]
+          description: Derived at response time from trusted system time and effectiveUnlockAt.
+        createdAt:
+          type: string
+          format: date-time
+
+    JarDetail:
+      type: object
+      additionalProperties: false
+      required: [id, sequenceNumber, current, timeZone, effectiveUnlockAt, lockStatus, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sequenceNumber:
+          type: integer
+          minimum: 1
+        current:
+          type: boolean
+          description: Latest writing-cycle jar; this is not persisted lock state.
+        timeZone:
+          type: string
+        effectiveUnlockAt:
+          type: string
+          format: date-time
+        lockStatus:
+          type: string
+          enum: [LOCKED, UNLOCKED]
+          description: Derived at response time from trusted system time and effectiveUnlockAt.
+        createdAt:
+          type: string
+          format: date-time
+        pendingUnlockProposal:
+          oneOf:
+            - $ref: '#/components/schemas/UnlockProposalResponse'
+            - type: 'null'
+
+    CreateEntryRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 5000
+
+    EntryResponse:
+      type: object
+      additionalProperties: false
+      required: [id, text, authorAccountId, createdAt]
+      description: Returned only after the jar is unlocked.
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        authorAccountId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    EntryPage:
+      type: object
+      additionalProperties: false
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntryResponse'
+        nextCursor:
+          oneOf:
+            - type: string
+            - type: 'null'
+        hasMore:
+          type: boolean
+
+    CreateUnlockProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [proposedUnlockAt]
+      properties:
+        proposedUnlockAt:
+          type: string
+          format: date-time
+
+    UnlockProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [id, proposedUnlockAt, proposedByAccountId, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        proposedUnlockAt:
+          type: string
+          format: date-time
+        proposedByAccountId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, CANCELLED, EXPIRED]
+        createdAt:
+          type: string
+          format: date-time
+
+    Problem:
+      type: object
+      additionalProperties: true
+      required: [type, title, status, code, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: Safe message with no protected data, secrets, or existence disclosure.
+        code:
+          type: string
+        correlationId:
+          type: string
+        violations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, code]
+            properties:
+              field:
+                type: string
+              code:
+                type: string
