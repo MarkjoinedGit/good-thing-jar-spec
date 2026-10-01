@@ -86,6 +86,7 @@ You **MUST** consider the user input before proceeding (if not empty).
      - Automatically proceed to step 3
 
 3. Load and analyze the implementation context:
+   - **REQUIRED**: Read `.specify/memory/constitution.md` and apply shared and application-specific duties
    - **REQUIRED**: Read tasks.md for the complete task list and execution plan
    - **REQUIRED**: Read plan.md for tech stack, architecture, and file structure
    - **IF EXISTS**: Read data-model.md for entities and relationships
@@ -94,6 +95,10 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **IF EXISTS**: Read quickstart.md for integration scenarios
 
 4. **Project Setup Verification**:
+   - Keep specs, plans, tasks, and contracts in `good-thing-jar-spec`. Perform backend setup and
+     implementation in the sibling `good-thing-jar-backend` and frontend setup and implementation in
+     the separate sibling `good-thing-jar-front-end`. Run build, test, startup, migration, and source
+     generation commands from the affected application directory; create application ignore files there.
    - **REQUIRED**: Create/verify ignore files based on actual project setup:
 
    **Detection & Creation Logic**:
@@ -170,6 +175,12 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Check that implemented features match the original specification
    - Validate that tests pass and coverage meets requirements
    - Confirm the implementation follows the technical plan
+   - For frontend changes, require passing type checking, linting, a production build, relevant
+     automated tests, and affected-flow verification against the real backend. Record commands,
+     environment, scenarios, and results; mock-only verification cannot establish completion.
+   - Verify frontend authentication, privacy, session/private-query cleanup, backend-authoritative
+     unlock boundaries, responsive desktop/mobile usability, full desktop prototype journeys,
+     keyboard navigation, accessible labels, and loading/empty/error/submission states as applicable.
    - Report final status with summary of completed work
 
 Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit.tasks` first to regenerate the task list.
