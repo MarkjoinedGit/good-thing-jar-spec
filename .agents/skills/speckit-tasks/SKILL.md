@@ -56,6 +56,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 2. **Load design documents**: Read from FEATURE_DIR:
    - **Required**: plan.md (tech stack, libraries, structure), spec.md (user stories with priorities)
+   - **Required**: `.specify/memory/constitution.md` (shared and application-specific obligations)
    - **Optional**: data-model.md (entities), contracts/ (interface contracts), research.md (decisions), quickstart.md (test scenarios)
    - Note: Not all projects have all documents. Generate tasks based on what's available.
 
@@ -75,7 +76,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Phase 1: Setup tasks (project initialization)
    - Phase 2: Foundational tasks (blocking prerequisites for all user stories)
    - Phase 3+: One phase per user story (in priority order from spec.md)
-   - Each phase includes: story goal, independent test criteria, tests (if requested), implementation tasks
+   - Each phase includes: story goal, independent test criteria, constitution-required or requested tests, implementation tasks
    - Final Phase: Polish & cross-cutting concerns
    - All tasks must follow the strict checklist format (see Task Generation Rules below)
    - Clear file paths for each task
@@ -128,7 +129,18 @@ The tasks.md should be immediately executable - each task must be specific enoug
 
 **CRITICAL**: Tasks MUST be organized by user story to enable independent implementation and testing.
 
-**Tests are OPTIONAL**: Only generate test tasks if explicitly requested in the feature specification or if user requests TDD approach.
+**Tests**: Generate automated test tasks for business-critical behavior and bug fixes as required by
+the constitution, even when the specification does not explicitly request tests. Frontend critical
+coverage includes authentication, privacy, session cleanup, and unlock boundaries. Generate other
+test tasks when requested or justified by the affected behavior. Tests must verify observable behavior.
+
+**Repository boundaries**: Keep generated tasks and planning artifacts in `good-thing-jar-spec`.
+Qualify implementation paths with `../good-thing-jar-backend` or `../good-thing-jar-front-end`, and
+identify the affected application's working directory for commands. Backend persistence obligations
+apply only to backend changes. Frontend tasks must cover separate presentation/flow/API concerns,
+backend-authoritative access and lock status, privacy and session/cache cleanup, responsive
+accessibility, and meaningful interaction states. Frontend completion tasks must explicitly include
+type checking, linting, a production build, relevant automated tests, and real-backend verification.
 
 ### Checklist Format (REQUIRED)
 
@@ -170,12 +182,12 @@ Every task MUST strictly follow this format:
      - Models needed for that story
      - Services needed for that story
      - Interfaces/UI needed for that story
-     - If tests requested: Tests specific to that story
+     - Constitution-required or requested tests specific to that story
    - Mark story dependencies (most stories should be independent)
 
 2. **From Contracts**:
    - Map each interface contract → to the user story it serves
-   - If tests requested: Each interface contract → contract test task [P] before implementation in that story's phase
+   - Map constitution-required or requested contract tests to that story's phase; mark [P] only when independent
 
 3. **From Data Model**:
    - Map each entity to the user story(ies) that need it
@@ -192,6 +204,6 @@ Every task MUST strictly follow this format:
 - **Phase 1**: Setup (project initialization)
 - **Phase 2**: Foundational (blocking prerequisites - MUST complete before user stories)
 - **Phase 3+**: User Stories in priority order (P1, P2, P3...)
-  - Within each story: Tests (if requested) → Models → Services → Endpoints → Integration
+  - Within each story: Required/requested tests → Application-specific implementation → Integration
   - Each phase should be a complete, independently testable increment
 - **Final Phase**: Polish & Cross-Cutting Concerns

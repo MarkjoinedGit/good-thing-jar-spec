@@ -11,6 +11,10 @@ description: "Task list template for feature implementation"
 **Tests**: Include automated tests for business-critical behavior and bug fixes. Add unit tests for
 isolated logic and integration tests where API, Spring, JPA, database, or transaction behavior matters.
 Tests must verify behavior, and relevant tests must pass before a story is complete.
+Frontend tests MUST cover business-critical authentication, privacy, session cleanup, and unlock
+boundaries, including skewed browser clocks and countdown expiry without backend permission.
+Frontend completion MUST include type checking, linting, a production build, relevant automated
+tests, and affected-flow verification against the real backend.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -19,12 +23,19 @@ Tests must verify behavior, and relevant tests must pass before a story is compl
 - **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
+- Qualify implementation paths by application directory and name each command's working directory
 
 ## Path Conventions
 
-- **Spring Boot backend**: `src/main/java/`, `src/main/resources/`, `src/test/java/`
+- **Specifications and contracts**: `specs/` in `good-thing-jar-spec`
+- **Spring Boot backend**: `../good-thing-jar-backend/src/main/java/com/goodthingjar/`,
+  `../good-thing-jar-backend/src/main/resources/`, `../good-thing-jar-backend/src/test/java/com/goodthingjar/`
+- **Frontend**: `../good-thing-jar-front-end/src/features/` and test paths selected by the plan;
+  separate presentation, application flows, and API access
 - **Multi-module backend**: use module-prefixed equivalents of those paths
-- Paths shown below assume a single backend module - adjust based on plan.md structure
+- Backend sample paths below are relative to `../good-thing-jar-backend`; generated tasks MUST
+  qualify them with that sibling directory. Frontend paths MUST identify its separate sibling root.
+- Execute build/run/test/migration/source-generation commands from the affected application root
 
 <!-- 
   ============================================================================
@@ -37,6 +48,8 @@ Tests must verify behavior, and relevant tests must pass before a story is compl
   - Endpoints from contracts/
   - Constitution requirements for DTOs, validation, error handling, transactions,
     migrations, security, logging, and behavior-focused tests where applicable
+  - Frontend requirements for architecture, backend authority, privacy, session/cache cleanup,
+    responsive accessibility, interaction states, and all frontend completion gates
   
   Tasks MUST be organized by user story so each story can be:
   - Implemented independently
@@ -52,7 +65,7 @@ Tests must verify behavior, and relevant tests must pass before a story is compl
 **Purpose**: Project initialization and basic structure
 
 - [ ] T001 Create project structure per implementation plan
-- [ ] T002 Initialize Java project with Spring Boot dependencies
+- [ ] T002 Initialize affected application projects and dependencies in their sibling directories
 - [ ] T003 [P] Configure linting and formatting tools
 
 ---
@@ -64,6 +77,10 @@ Tests must verify behavior, and relevant tests must pass before a story is compl
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
 Examples of foundational tasks (adjust based on your project):
+
+Backend examples below apply only to affected backend work. For frontend work, generate foundational
+tasks for API access, session lifecycle and private-query cleanup, and the chosen test/build tooling
+inside `../good-thing-jar-front-end`. Do not generate backend persistence tasks for frontend-only work.
 
 - [ ] T004 Setup database schema and migrations framework
 - [ ] T005 [P] Implement authentication/authorization framework
@@ -85,6 +102,8 @@ Examples of foundational tasks (adjust based on your project):
 ### Tests for User Story 1
 
 > Select unit, API, and integration tests according to the behavior and framework boundaries involved.
+> For frontend stories, select component/browser tests for critical authentication, privacy, and
+> unlock boundaries. Include real-backend journey verification and desktop/mobile keyboard use.
 
 - [ ] T010 [P] [US1] API contract test for [endpoint] in src/test/java/[package]/api/[Name]ApiTest.java
 - [ ] T011 [P] [US1] Integration test for [user journey] in src/test/java/[package]/[Name]IntegrationTest.java
@@ -160,6 +179,15 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX Verify applicable authentication, authorization, and sensitive-data handling
 - [ ] TXXX Run quickstart.md validation
 
+For affected frontend work, generate explicit final verification tasks (with exact paths and
+commands from the plan) in addition to applicable tasks above:
+
+- [ ] TXXX Verify private state and query caches clear on logout/session termination and delayed responses cannot restore them in ../good-thing-jar-front-end/[session-test-path]
+- [ ] TXXX Verify tokens, entry content, and sensitive data are absent from logs, analytics, and persistent caches in ../good-thing-jar-front-end/[privacy-test-path]
+- [ ] TXXX Verify responsive desktop/mobile layouts, full desktop prototype journeys, keyboard navigation, labels, and loading/empty/error/submission states in ../good-thing-jar-front-end/[browser-test-path]
+- [ ] TXXX Run type checking, linting, production build, and relevant automated tests from ../good-thing-jar-front-end; record commands and results in specs/[###-feature]/quickstart.md
+- [ ] TXXX Verify affected frontend journeys against the real backend, including authentication, denied access, and immediately-before/exact-unlock behavior; record environment, scenarios, and results in specs/[###-feature]/quickstart.md
+
 ---
 
 ## Dependencies & Execution Order
@@ -185,6 +213,11 @@ Examples of foundational tasks (adjust based on your project):
 - Add version-controlled migration tasks with exact paths for schema changes
 - Cover validation, centralized errors, authorization, and logging where applicable
 - Review fetch strategies, query count, transaction boundaries, and concurrency where applicable
+- For frontend work, separate presentation, application flows, and API access; implement private
+  state/query cleanup and display-only countdowns before protected journeys depend on them
+- Verify responsive accessibility and meaningful interaction states for each affected frontend story
+- Pass frontend type checking, linting, production build, automated tests, and real-backend
+  verification before claiming frontend completion; mocks alone cannot satisfy the backend gate
 - Entities and migrations before dependent persistence services
 - Services before endpoints
 - Core implementation before integration

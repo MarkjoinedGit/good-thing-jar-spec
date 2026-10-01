@@ -5,6 +5,11 @@
 **Status**: Draft  
 **Input**: User description: "$ARGUMENTS"
 
+**Affected Applications**: [backend, frontend, or both]
+
+<!-- Keep this specification and its contracts in good-thing-jar-spec. Implementation belongs in
+     the separate sibling good-thing-jar-backend and good-thing-jar-front-end directories. -->
+
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
@@ -75,6 +80,11 @@
 - What happens when [boundary condition]?
 - How does system handle [error scenario]?
 
+<!-- For frontend flows, include expired/revoked sessions, logout and subsequent sign-in,
+     delayed requests after termination, skewed browser clocks, countdown expiry before backend
+     confirmation, and access immediately before and at unlock. Include loading, empty, error,
+     and submission outcomes, keyboard use, and desktop/mobile layout boundaries. -->
+
 ## Requirements *(mandatory)*
 
 <!--
@@ -88,6 +98,11 @@
   For affected APIs, specify request and response behavior, validation, error responses, and
   compatibility requirements. For affected data, specify invariants, concurrency expectations,
   and migration needs. State applicable authentication, authorization, and diagnostic needs.
+  For frontend flows, require backend-authoritative authorization and lock status; browser clocks
+  and countdowns are display-only. Specify privacy in logs, analytics, and persistent caches and
+  cleanup of private state/query caches on logout or session termination. Cover responsive desktop
+  and mobile browser use, full desktop usability for the initial prototype, keyboard navigation,
+  accessible form labels, and meaningful loading, empty, error, and submission states.
   Describe observable outcomes here; leave implementation choices to the plan.
 -->
 
@@ -95,7 +110,7 @@
 - **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]  
 - **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
 - **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-005**: System MUST [behavior, e.g., "provide diagnostic events without sensitive data"]
 
 *Example of marking unclear requirements:*
 
@@ -112,6 +127,9 @@
 <!--
   ACTION REQUIRED: Define measurable success criteria.
   These must be technology-agnostic and measurable.
+  For frontend features, include measurable desktop/mobile usability and accessibility outcomes,
+  authentication/privacy/unlock-boundary acceptance scenarios, and real-backend journey outcomes.
+  Tool-specific completion commands belong in plan.md and tasks.md, not user-facing success metrics.
 -->
 
 ### Measurable Outcomes
@@ -130,6 +148,7 @@
 -->
 
 - [Assumption about target users, e.g., "Users have stable internet connectivity"]
-- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
+- [Assumption about scope boundaries consistent with responsive desktop/mobile support and full
+  desktop-browser usability for the initial prototype]
 - [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
 - [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
